@@ -1,13 +1,20 @@
-from __future__ import print_function
+#!/usr/bin/env python
+
 import binascii
 import sys, getopt
 import os
 import gc
+import mimetypes
 from progressbar import AnimatedMarker, Bar, BouncingBar, Counter, ETA, \
     FileTransferSpeed, FormatLabel, Percentage, \
     ProgressBar, ReverseBar, RotatingMarker, \
-    SimpleProgress, Timer, AdaptiveETA, AdaptiveTransferSpeed
+    SimpleProgress, Timer
 from codecs import encode, decode
+
+#define a list
+start = []
+end = []
+debug = True
 
 def inline(needle, haystack):
     try:
@@ -16,58 +23,69 @@ def inline(needle, haystack):
         return -1
 
 def get_file_size(filename):
-    "Get the file size by seeking at end"
     fd= os.open(filename, os.O_RDONLY)
     try:
         return os.lseek(fd, 0, os.SEEK_END)
     finally:
         os.close(fd)
 
+def parse_jpeg(index, values):
+    tags = ["\xFF\xDB", "\xFF\xC0", "\xFF\xC4", "\xFF\xDA"]
+    for tag in tags:
+        if(debug):
+            print("********" + tag.encode("hex") + "**********")
+        DQT = values.find(tag, index)
+        while(DQT != -1):
+            DQT_size = int(str(values[DQT + 2]) + str(values[DQT + 3])) + 2
+            if(debug):
+                print(format(values[DQT],'02x') + format(values[DQT+1],'02x') + " - index: " + str(index) + " - size: " + str(DQT_size))
+            if (tag == "\xFF\xDA"):
+                index = index + 2
+            else:
+                index = int(index + DQT_size)
+            DQT = values.find(tag, index)
+    index = values.find("\xFF\xD9", index) + 2
+    print(index)
+    return index
+
+def findfile(index, values):
+    try:
+        SOI = values.find("\xFF\xD8", index)
+        while(SOI != -1):
+            APP0_size = int(str(values[SOI + 4]) + str(values[SOI + 5]))
+            index = index + SOI + 4 + APP0_size 
+            index = parse_jpeg(index, values)
+            if(debug):
+                print("index: " + str(index))
+            start.append(SOI)
+            end.append(index)
+            SOI = values.find("\xFF\xD8", index)
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        print(fname, exc_tb.tb_lineno)
+        print(e)
+    return index
+       
+
 def run(filename, outfile):
-    #define a list
-    start = []
-    end = []
     #open our image file as binary
     with open(filename, 'rb') as f:
-        index = 0;
-        looking_for_end = 0
+        index = 0
         f_size = get_file_size(filename)
         print(f_size)
-        print("\nRecovering Files...\n")
+        print("Recovering Files...\n")
         pbar = ProgressBar(widgets=[Percentage(), Bar(), ETA()], maxval=f_size+1).start()
         s = 0
         e = 0
         try:
             garbage = 0
             while 1:
-                ba = f.readline(128000)
+                #read file into byte array
+                ba = bytearray(f.read())
                 if not ba:
                     break
-                #read file into byte array
-                found = inline(b'\xFF\xD8', ba)
-                if found != -1:
-                    s += 1
-                    found = inline(b'\xFF\xD8\xFF\xE1', ba)
-                    if found == -1:
-                        if looking_for_end>=1:
-                            looking_for_end += 1
-                            #x = 0
-                    else:
-                        if looking_for_end==0:
-                            start.append(index + found + 1)
-                            #print("Start - " + str(len(start)))
-                            #print("End - " + str(len(end)))
-                            looking_for_end = 1
-                
-                found = inline(b'\xFF\xD9', ba)
-                if found != -1:
-                    e += 1
-                    if looking_for_end==1:
-                        end.append(index + found + 3)
-                        looking_for_end = 0
-                        #print(byte)
-                    elif looking_for_end>1:
-                        looking_for_end -= 1
+                findfile(index, ba)
                 index += len(ba)
                 garbage += len(ba)
                 pbar.update(index)
@@ -79,11 +97,12 @@ def run(filename, outfile):
             pbar.update(index)
             print(str(len(start)))
             print(str(index))
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
             print("Memory Failure - " + str(e))
+            print(fname, exc_tb.tb_lineno)
         pbar.finish()
     print ("Recovering " + str(len(start)) + " Images")
-    print("Ends - " + str(e))
-    print("Starts - " + str(s))
     #print (str(start) + '\n' + str(end))
     count = -1
     #loop for each picture
@@ -91,8 +110,8 @@ def run(filename, outfile):
         count += 1
         try:
             print("pic" + str(count) + ": " + str(start[count]) + "-" + str(end[count]))
-            with open(filename, 'rb') as f:
-                f.seek(start[count]-1)
+            with open(filename, 'rb') as f: 
+                f.seek(start[count])
                 length = (end[count] - start[count])
                 if length < -1:
                     length = 0
@@ -106,10 +125,10 @@ def run(filename, outfile):
                     f.close() 
             
         except Exception as e:
-            print (str(len(start)))
-            print (str(len(end)))
-            print (str(end[count] - start[count]))
             print("An Error Occured - " + str(e))
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+            print(fname, exc_tb.tb_lineno)
             break
 
 #Check for command line args
@@ -118,7 +137,10 @@ if sys.argv[1] == '-h':
     print("usage: recover <image file> -o <outfile>")
 elif sys.argv[2] == '-o':
     #run the system
-    run(sys.argv[1], sys.argv[3])
+    try:
+        run(sys.argv[1], sys.argv[3])
+    except Exception as e:
+        print("*** " + str(e) + " ***")
 else:
     #wrong format so show help
     print("usage: recover <image file> -o <outfile>")
