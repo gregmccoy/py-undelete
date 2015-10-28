@@ -137,6 +137,7 @@ def run(filename, outfile):
         print(f_size)
         pbar = ProgressBar(widgets=[Percentage(), Bar(), ETA()], maxval=f_size+1).start()
         print("Recovering Files...\n")
+        global chunks
         try:
             for values in read_in_chunks(f):
                 findfile(values, pbar)
