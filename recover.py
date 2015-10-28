@@ -15,7 +15,7 @@ from codecs import encode, decode
 #define a list
 fix = []
 images = []
-debug = True
+debug = False
 CHUNK_SIZE = 100000000
 progress = 0
 chunks = 0
@@ -119,7 +119,7 @@ def findfile(values, pbar):
                 images.append(temp)
                 del fix[:]
             SOI = values.find("\xFF\xD8", index)
-            progress = index + (chunks + CHUNK_SIZE)
+            progress = index + (chunks * CHUNK_SIZE)
             pbar.update(progress)
     except Exception as e:
         exc_type, exc_obj, exc_tb = sys.exc_info()
@@ -144,10 +144,9 @@ def run(filename, outfile):
                 gc.collect()
                 
         except Exception as e:
-            print(str(len(images)))
             exc_type, exc_obj, exc_tb = sys.exc_info()
             fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-            print("Memory Failure - " + str(e))
+            print(e)
             print(fname, exc_tb.tb_lineno)
         pbar.finish()
     print ("Recovering " + str(len(images)) + " Images")
