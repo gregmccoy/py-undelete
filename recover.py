@@ -13,7 +13,6 @@ from progressbar import AnimatedMarker, Bar, BouncingBar, Counter, ETA, \
 from codecs import encode, decode
 
 #define a list
-fix = []
 images = []
 debug = True
 CHUNK_SIZE = 100000000
@@ -135,7 +134,6 @@ def findfile(values):
                 temp.set_end(index + 2)
                 temp.set_chunk(chunks)
                 images.append(temp)
-                del fix[:]
             SOI = values.find("\xFF\xD8", index)
     except Exception as e:
         exc_type, exc_obj, exc_tb = sys.exc_info()
@@ -185,14 +183,14 @@ def run(filename, outfile):
                 else:
                     pic = f.read(length)
                     for fix in i.get_fix():
-                        fix = fix + (i.get_chunk() * CHUNK_SIZE)
                         if(debug):
-                            print("*** FIXING PIC " + str(count+1) + "| Index = " + str(fix) + " ***")
+                            print("*** FIXING PIC " + str(count) + "| Index = " + str(fix) + "| Chunk = " + str(i.get_chunk()) + " ***")
                         try:    
                             substr = pic[fix] + pic[fix+1]
                             pic = pic[:fix] + pic[fix:fix+1].replace(substr, "\x00\x00") + pic[fix+2:]
                         except Exception as e:
-                            print("*** FAILED TO FIX PIC " + str(count) + "***")
+                            print(e)
+                            print("*** FAILED TO FIX PIC " + str(count) + " ***")
                     #print (pic)
                     #open write file
                     w = open(outfile + '/pic' + str(count+1) + '.jpeg','wb')
