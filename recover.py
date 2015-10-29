@@ -81,7 +81,6 @@ def parse_jpeg(index, values, temp, SOI):
         tag = read_bytes(values, index)
         index = index + 2
         while tag in tags:
-            valid = True
             byte_size = read_bytes(values, index)
             if(debug):
                 print(tag + " - index: " + str(index))
@@ -89,6 +88,7 @@ def parse_jpeg(index, values, temp, SOI):
                 end = values.find("\xFF\xD9", index, len(values))
                 error = values.find("\xFF\xD8", index, end)
                 if(end != -1):
+                    valid = True
                     index = end
                 else:
                     valid = False
@@ -122,8 +122,6 @@ def findfile(values):
         if(debug):
             print("*** NEW CHUNK " + str(chunks) + " ***")
         while(SOI != -1):
-            if(debug):
-                print("*** FOUND JPEG IMAGE ***")
             index = SOI + 4
             temp = Image(0, 0, [], 0)
             index, valid = parse_jpeg(index, values, temp, SOI)
