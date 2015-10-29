@@ -118,7 +118,7 @@ def parse_jpeg(index, values, temp, SOI):
 def findfile(values):
     try:
         index = 0
-        SOI = values.find("\xFF\xD8", index)
+        SOI = values.find("\xFF\xD8\xFF", index)
         if(debug):
             print("*** NEW CHUNK " + str(chunks) + " ***")
         while(SOI != -1):
@@ -132,7 +132,7 @@ def findfile(values):
                 temp.set_end(index + 2)
                 temp.set_chunk(chunks)
                 images.append(temp)
-            SOI = values.find("\xFF\xD8", index)
+            SOI = values.find("\xFF\xD8\xFF", index)
     except Exception as e:
         exc_type, exc_obj, exc_tb = sys.exc_info()
         fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
