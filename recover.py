@@ -15,17 +15,18 @@ from codecs import encode, decode
 #define a list
 fix = []
 images = []
-debug = False
+debug = True
 CHUNK_SIZE = 100000000
 progress = 0
 chunks = 0
 
 class Image:
     """docstring for ClassName"""
-    def __init__(self, start, end, fix):
+    def __init__(self, start, end, fix, chunk):
         self.start = start
         self.end = end
         self.fix = fix
+        self.chunk = chunk
     def add_fix(self, fix):
         self.fix.append(fix)
         return 0
@@ -35,12 +36,18 @@ class Image:
     def set_end(self, end):
         self.end = end
         return 0
+    def set_chunk(self, chunk):
+        self.chunk = chunk
+        return 0
     def get_start(self):
         return self.start
     def get_end(self):
         return self.end
     def get_fix(self):
         return self.fix
+    def get_chunk(self):
+        return self.chunk
+
         
 def inline(needle, haystack):
     try:
@@ -71,7 +78,7 @@ def parse_jpeg(index, values, temp, SOI):
     try:
         valid = False
         byte_size = read_bytes(values, index)
-        index = index + int(byte_size, 16)
+        index = index + long(byte_size, 16)
         tag = read_bytes(values, index)
         index = index + 2
         while tag in tags:
@@ -80,20 +87,26 @@ def parse_jpeg(index, values, temp, SOI):
             if(debug):
                 print(tag + " - index: " + str(index))
             if (tag == tags[3]):
-                end = values.find("\xFF\xD9", index) + 2
+                end = values.find("\xFF\xD9", index, len(values))
                 error = values.find("\xFF\xD8", index, end)
+                if(end != -1):
+                    index = end
+                else:
+                    valid = False
+                    if(debug):
+                        print("*** BAD END |" + "START = " + str(SOI) + "| End = " + str(end)  + "| Chunk = " + str(chunks) + " ***\n")
+                    return -1, valid
+
                 while(error != -1): 
                     temp.add_fix(error - SOI)
                     error = values.find("\xFF\xD8", error + 2, end)
                     if(debug):
                         print("*** CORRUPT IMAGE ***")
-
                 if(debug):
-                    print("*** RECOVERED IMAGE ***")
-                tag = 0
-                index = end
+                    print("*** RECOVERED IMAGE |" + "START = " + str(SOI) + "| End = " + str(end)  + "| Chunk = " + str(chunks) + " ***\n")
+                tag = 0     
             else:
-                index = index + int(byte_size, 16)
+                index = index + long(byte_size, 16)
                 tag = read_bytes(values, index)
                 index = index + 2  
     except Exception as e:
@@ -103,24 +116,27 @@ def parse_jpeg(index, values, temp, SOI):
         print(e)  
     return index, valid
 
-def findfile(values, pbar):
+def findfile(values):
     try:
         index = 0
-        SOI = values.find("\xFF\xD8")
+        SOI = values.find("\xFF\xD8", index)
+        if(debug):
+            print("*** NEW CHUNK " + str(chunks) + " ***")
         while(SOI != -1):
             if(debug):
                 print("*** FOUND JPEG IMAGE ***")
             index = SOI + 4
-            temp = Image(0, 0, [])
+            temp = Image(0, 0, [], 0)
             index, valid = parse_jpeg(index, values, temp, SOI)
+            if(index == -1):
+                break
             if(valid):
                 temp.set_start(SOI)
-                temp.set_end(index)
+                temp.set_end(index + 2)
+                temp.set_chunk(chunks)
                 images.append(temp)
                 del fix[:]
             SOI = values.find("\xFF\xD8", index)
-            progress = index + (chunks * CHUNK_SIZE)
-            pbar.update(progress)
     except Exception as e:
         exc_type, exc_obj, exc_tb = sys.exc_info()
         fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
@@ -140,8 +156,9 @@ def run(filename, outfile):
         global chunks
         try:
             for values in read_in_chunks(f):
-                findfile(values, pbar)
+                findfile(values)
                 chunks = chunks + 1
+                #pbar.update(chunks * CHUNK_SIZE)
                 gc.collect()
                 
         except Exception as e:
@@ -157,19 +174,25 @@ def run(filename, outfile):
     for i in images:
         count += 1
         try:
-            print("pic" + str(count) + ": " + str(i.get_start()) + "-" + str(i.get_end()))
+            start = i.get_start() + (i.get_chunk() * CHUNK_SIZE)
+            end = i.get_end() + (i.get_chunk() * CHUNK_SIZE)
+            print("pic" + str(count) + ": " + str(start) + "-" + str(end) + "| CHUNK = " + str(i.get_chunk()) + "| ORG_START = " + str(i.get_start()))
             with open(filename, 'rb') as f: 
-                f.seek(i.get_start())
-                length = (i.get_end() - i.get_start())
+                f.seek(start)
+                length = (end - start)
                 if length < -1:
                     length = 0
                 else:
                     pic = f.read(length)
                     for fix in i.get_fix():
+                        fix = fix + (i.get_chunk() * CHUNK_SIZE)
                         if(debug):
-                            print("*** FIXING PIC " + str(count+1) + " ***")
-                        substr = pic[fix] + pic[fix+1]
-                        pic = pic[:fix] + pic[fix:fix+1].replace(substr, "\xFF\x33") + pic[fix+2:]
+                            print("*** FIXING PIC " + str(count+1) + "| Index = " + str(fix) + " ***")
+                        try:    
+                            substr = pic[fix] + pic[fix+1]
+                            pic = pic[:fix] + pic[fix:fix+1].replace(substr, "\x00\x00") + pic[fix+2:]
+                        except Exception as e:
+                            print("*** FAILED TO FIX PIC " + str(count) + "***")
                     #print (pic)
                     #open write file
                     w = open(outfile + '/pic' + str(count+1) + '.jpeg','wb')
